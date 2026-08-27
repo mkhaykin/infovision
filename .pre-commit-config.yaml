@@ -1,0 +1,75 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0  # 3.7
+    hooks:
+      - id: trailing-whitespace      # убирает лишние пробелы
+        files: \.(py|sh|rst|yml|yaml)$
+      - id: check-added-large-files  # тяжелые файлы
+        args: ['--maxkb=10']
+        exclude: ^zabbix_template/
+      - id: check-yaml               # синтаксис .yaml файлов
+      - id: check-json               # синтаксис .json файлов
+      - id: check-case-conflict   # проверяет файлы, которые могут конфликтовать в файловых системах без учета регистра.
+      - id: check-merge-conflict  # проверяет файлы, содержащие конфликтные строки слияния.
+      - id: end-of-file-fixer          # добавляет пустую строку в конце файла
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff-check
+        name: ruff-linter
+        exclude: ^(tests)
+        args: [
+          "--fix",
+          "--line-length=90",
+          "--target-version=py314",
+          "--select=E,W,F,ANN,B,A,COM,C4,T10,ERA,EXE,FIX,PYI,S,ARG,TD,I",
+#          "--ignore=ANN101,ANN102,ANN401,B017,EXE002,S101,FIX002,TD002,TD003",
+          "--per-file-ignores=tests/*.py:S101",
+        ]
+
+      - id: ruff-format
+        name: ruff-formatter
+#        exclude: ^tests
+        args: [ --line-length=90, --target-version=py314 ]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.3.0
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: python
+        language_version: python3.14
+        types: [python]
+        exclude: ^(migrations|alembic|tests|app)/
+        # убрать при случае app, но сейчас там хлам ...
+        args: [
+          --show-error-codes,
+          --python-version=3.14,
+          "--exclude", "^(migrations|alembic|tests|app)/",
+          "--ignore-missing-imports",
+          "--explicit-package-bases"
+        ]
+
+#  - repo: local
+#    hooks:
+#      - id: pytest-check
+#        name: pytest-check
+#        args: ["-q", "-m", "not slow"]
+#        entry: pytest
+#        language: python
+#        language_version: python3.14
+#        pass_filenames: false
+#        always_run: true
+#        additional_dependencies:
+#          - lxml
+
+exclude: |
+    (?x)(
+        __pycache__
+        ^docs/|
+        ^.venv/|
+        ^.idea/
+    )
