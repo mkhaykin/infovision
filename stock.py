@@ -90,7 +90,7 @@ class CachedPeriod:
 _CACHED_PERIOD: CachedPeriod = CachedPeriod()
 
 # хранение кеша за месяц
-_CACHED_DATA: dict[date, list[tuple[SkuLocation, Value]]] = {}
+_CACHED_RAW_DATA: dict[date, list[tuple[SkuLocation, Value]]] = {}
 
 
 def get_last_day_of_month(some_date: date) -> date:
@@ -141,7 +141,7 @@ def _invent(
     trans_date: date,
 ) -> Generator[tuple[SkuLocation, Value], None, None]:
     if not _CACHED_PERIOD.start <= trans_date <= _CACHED_PERIOD.fin:
-        _CACHED_DATA.clear()
+        _CACHED_RAW_DATA.clear()
         _CACHED_PERIOD.start = date(trans_date.year, trans_date.month, 1)
         _CACHED_PERIOD.fin = get_last_day_of_month(trans_date)
 
@@ -157,7 +157,7 @@ def _invent(
                 sl = SkuLocation(row.item_id, row.location_id)
                 value = Value(Decimal(row.qty), Decimal(row.cost_amount))
 
-                _CACHED_DATA.setdefault(td, []).append((sl, value))
+                _CACHED_RAW_DATA.setdefault(td, []).append((sl, value))
                 count += 1
             except ValueError:
                 logger.warning("Ошибка конвертации в строке %d", i)
@@ -167,12 +167,12 @@ def _invent(
         logger.debug(
             "Закэширован период: %s, количество дней: %d, строк: %d, пропущено: %d",
             _CACHED_PERIOD,
-            len(_CACHED_DATA),
+            len(_CACHED_RAW_DATA),
             count,
             skipped,
         )
 
-    yield from _CACHED_DATA.get(trans_date, [])
+    yield from _CACHED_RAW_DATA.get(trans_date, [])
 
 
 def _save_stock(trans_date: date, stock: dict[SkuLocation, Value]) -> None:
