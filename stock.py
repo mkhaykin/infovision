@@ -18,6 +18,7 @@
 
 import csv
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -71,6 +72,36 @@ class Row(NamedTuple):
     cost_amount: str
 
 
+@dataclass(slots=True)
+class CachedPeriod:
+    start: date = date.max
+    fin: date = date.min
+
+    def __bool__(self) -> bool:
+        return self.start <= self.fin
+
+    def __str__(self) -> str:
+        if not self:
+            return super().__str__()
+        return f"с {self.start.strftime('%Y-%m-%d')} по {self.fin.strftime('%Y-%m-%d')}"
+
+
+# данные о периоде кеширования
+_CACHED_PERIOD: CachedPeriod = CachedPeriod()
+
+# хранение кеша за месяц
+_CACHED_DATA: dict[date, list[tuple[SkuLocation, Value]]] = {}
+
+
+def get_last_day_of_month(some_date: date) -> date:
+    if some_date.month == 12:
+        next_month = some_date.replace(year=some_date.year + 1, month=1, day=1)
+    else:
+        next_month = some_date.replace(month=some_date.month + 1, day=1)
+
+    return next_month - timedelta(days=1)
+
+
 def _rows(
     filename: Path,
     filtered_date: Optional[str] = None,
@@ -109,20 +140,39 @@ def _day_process(
 def _invent(
     trans_date: date,
 ) -> Generator[tuple[SkuLocation, Value], None, None]:
-    s_date = trans_date.strftime("%Y-%m-%d")
-    s_date_short = trans_date.strftime("%Y_%m")
+    if not _CACHED_PERIOD.start <= trans_date <= _CACHED_PERIOD.fin:
+        _CACHED_DATA.clear()
+        _CACHED_PERIOD.start = date(trans_date.year, trans_date.month, 1)
+        _CACHED_PERIOD.fin = get_last_day_of_month(trans_date)
 
-    invent_trans_file = PATH_TRANS / f"invent_trans_{s_date_short}.csv"
+        s_date_short = trans_date.strftime("%Y_%m")
+        invent_trans_file = PATH_TRANS / f"invent_trans_{s_date_short}.csv"
 
-    logger.debug("Читаем %s", invent_trans_file)
-    for i, row in enumerate(_rows(invent_trans_file, s_date), 1):
-        try:
-            sl = SkuLocation(row.item_id, row.location_id)
-            value = Value(Decimal(row.qty), Decimal(row.cost_amount))
-            yield sl, value
-        except ValueError:
-            logger.warning("Ошибка конвертации в строке %d", i)
-            continue
+        logger.debug("Читаем %s", invent_trans_file)
+        count = 0
+        skipped = 0
+        for i, row in enumerate(_rows(invent_trans_file), 1):
+            try:
+                td = datetime.strptime(row.trans_date, "%Y-%m-%d").date()
+                sl = SkuLocation(row.item_id, row.location_id)
+                value = Value(Decimal(row.qty), Decimal(row.cost_amount))
+
+                _CACHED_DATA.setdefault(td, []).append((sl, value))
+                count += 1
+            except ValueError:
+                logger.warning("Ошибка конвертации в строке %d", i)
+                skipped += 1
+                continue
+
+        logger.debug(
+            "Закэширован период: %s, количество дней: %d, строк: %d, пропущено: %d",
+            _CACHED_PERIOD,
+            len(_CACHED_DATA),
+            count,
+            skipped,
+        )
+
+    yield from _CACHED_DATA.get(trans_date, [])
 
 
 def _save_stock(trans_date: date, stock: dict[SkuLocation, Value]) -> None:
@@ -165,8 +215,8 @@ def _load_stock(stock_date: date) -> dict[SkuLocation, Value]:
 
 
 def main() -> None:
-    start_date = datetime(2025, 4, 30)
-    fin_date = datetime(2025, 7, 31)
+    start_date = datetime(2025, 4, 30).date()
+    fin_date = datetime(2025, 7, 31).date()
 
     stock = _load_stock(start_date)
     trans_date = start_date
