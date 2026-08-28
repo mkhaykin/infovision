@@ -13,10 +13,9 @@
 Так же не чистим нулевые остатки (в ТЗ нет указаний по этому поводу).
 """
 
-import calendar
 import csv
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Final, Generator, NamedTuple, Optional
@@ -51,14 +50,14 @@ class SkuLocation(NamedTuple):
 
 
 class Value(NamedTuple):
-    qtu: Decimal = Decimal(0)
+    qty: Decimal = Decimal(0)
     cost_amount: Decimal = Decimal(0)
 
     def __add__(self, other: tuple) -> Value:
         if not isinstance(other, Value):
             return NotImplemented
 
-        return Value(self.qtu + other.qtu, self.cost_amount + other.cost_amount)
+        return Value(self.qty + other.qty, self.cost_amount + other.cost_amount)
 
 
 class Row(NamedTuple):
@@ -67,15 +66,6 @@ class Row(NamedTuple):
     trans_date: str
     qty: str
     cost_amount: str
-
-
-def add_months(sourcedate: date, months: int) -> date:
-    # stackoverflow
-    month = sourcedate.month - 1 + months
-    year = sourcedate.year + month // 12
-    month = month % 12 + 1
-    day = min(sourcedate.day, calendar.monthrange(year, month)[1])
-    return datetime(year, month, day)
 
 
 def _rows(
@@ -103,22 +93,35 @@ def _day_process(
     trans_date: date,
     stock: dict[SkuLocation, Value],
 ) -> dict[SkuLocation, Value]:
-    s_date = trans_date.strftime("%Y_%m_%d")
-    s_date_ = trans_date.strftime("%Y-%m-%d")
+    for sl, value in _invent(trans_date):
+        stock[sl] = stock.get(sl, Value()) + value
+
+    _save_stock(trans_date, stock)
+    return stock
+
+
+def _invent(
+    trans_date: date,
+) -> Generator[tuple[SkuLocation, Value], None, None]:
+    s_date = trans_date.strftime("%Y-%m-%d")
     s_date_short = trans_date.strftime("%Y_%m")
 
     invent_trans_file = PATH_TRANS / f"invent_trans_{s_date_short}.csv"
-    stock_file = PATH_STOCK / f"stock_{s_date}.csv"
 
     logger.debug("Читаем %s", invent_trans_file)
-    for i, row in enumerate(_rows(invent_trans_file, s_date, False), 1):
+    for i, row in enumerate(_rows(invent_trans_file, s_date), 1):
         try:
             sl = SkuLocation(row.item_id, row.location_id)
             value = Value(Decimal(row.qty), Decimal(row.cost_amount))
+            yield sl, value
         except ValueError:
             logger.warning("Ошибка конвертации в строке %d", i)
             continue
-        stock[sl] = stock.get(sl, Value()) + value
+
+
+def _save_stock(trans_date: date, stock: dict[SkuLocation, Value]) -> None:
+    s_date = trans_date.strftime("%Y-%m-%d")
+    stock_file = PATH_STOCK / f"stock_{trans_date.strftime('%Y_%m_%d')}.csv"
 
     logger.debug("Сохраняем %s", stock_file)
     with open(stock_file, "w", encoding=ENCODING) as fw:
@@ -126,21 +129,8 @@ def _day_process(
         header = ("item_id", "location_id", "trans_date", "qty", "cost_amount")
         writer.writerow(header)
         for sl, value in stock.items():
-            item = [sl.item_id, sl.location_id, s_date_, value.qtu, value.cost_amount]
+            item = [sl.item_id, sl.location_id, s_date, value.qty, value.cost_amount]
             writer.writerow(item)
-
-    return stock
-
-
-def _month_process(
-    trans_date: date,
-    stock: dict[SkuLocation, Value],
-) -> dict[SkuLocation, Value]:
-    _, last_day = calendar.monthrange(trans_date.year, trans_date.month)
-    for current_day in range(1, last_day + 1):
-        current_date = datetime(trans_date.year, trans_date.month, current_day)
-        stock = _day_process(current_date, stock)
-    return stock
 
 
 def _load_stock(stock_date: date) -> dict[SkuLocation, Value]:
@@ -170,11 +160,13 @@ def _load_stock(stock_date: date) -> dict[SkuLocation, Value]:
 
 def main() -> None:
     start_date = datetime(2025, 4, 30)
-    stock = _load_stock(start_date)
+    fin_date = datetime(2025, 7, 31)
 
-    for i in range(1, 4):
-        trans_date = add_months(start_date, i)
-        stock = _month_process(trans_date, stock)
+    stock = _load_stock(start_date)
+    trans_date = start_date
+    while trans_date < fin_date:
+        trans_date = trans_date + timedelta(days=1)
+        stock = _day_process(trans_date, stock)
 
 
 if __name__ == "__main__":
