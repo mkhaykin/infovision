@@ -73,6 +73,9 @@ def _rows(
     filtered_date: Optional[str] = None,
     has_header: bool = True,
 ) -> Generator[Row, None, None]:
+    if not filename.is_file():
+        logger.error("Файл %s не найден", filename)
+
     with open(filename, encoding=ENCODING) as fr:
         reader = csv.reader(fr, delimiter=DELIMITER)
 
