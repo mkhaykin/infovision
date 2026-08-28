@@ -192,8 +192,13 @@ def _save_stock(trans_date: date, stock: dict[SkuLocation, Value]) -> None:
 def _load_stock(stock_date: date) -> dict[SkuLocation, Value]:
     stock: dict[SkuLocation, Value] = {}
     trans_date_set = set()
+
     s_date = stock_date.strftime("%Y_%m_%d")
-    for stock_item in _rows(PATH_STOCK / f"stock_{s_date}.csv"):
+    stock_file = PATH_STOCK / f"stock_{s_date}.csv"
+
+    logger.debug("Читаем %s", stock_file)
+    count = 0
+    for stock_item in _rows(stock_file):
         # считаем, что повторов в остатках быть не должно
         stock[
             SkuLocation(
@@ -205,10 +210,19 @@ def _load_stock(stock_date: date) -> dict[SkuLocation, Value]:
             Decimal(stock_item.cost_amount),
         )
         trans_date_set.add(stock_item.trans_date)
+        count += 1
 
-    if len(trans_date_set) != 1:
+    logger.debug(
+        "Прочитаны остатки за %s, количество дней: %d, строк: %d, позиций: %d",
+        ", ".join(sorted(trans_date_set)),
+        len(trans_date_set),
+        count,
+        len(stock),
+    )
+
+    if len(trans_date_set) > 1:
         raise ValueError(
-            f"Ерунда в начальных остатках с датами: {sorted(trans_date_set)}",
+            "Ерунда в начальных остатках с датами > 1",
         )
 
     return stock
