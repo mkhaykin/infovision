@@ -18,59 +18,15 @@
 """
 
 import csv
-import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
-from typing import Final, Generator, NamedTuple, Optional
+from typing import Generator
 
-PATH_SOURCE = Path(__file__).parent
-PATH_TRANS = PATH_SOURCE / "invent_trans"
-PATH_STOCK = PATH_SOURCE / "stock"
-
-DELIMITER: Final = ";"
-ENCODING: Final = "utf-8"
-QUOTING: Final = csv.QUOTE_NONNUMERIC
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s.%(msecs)03d "
-    "| %(levelname)-8s "
-    "| [%(process)d:%(threadName)s] "
-    "| %(name)s "
-    "| %(filename)s:%(lineno)d -> %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("app.log", encoding="utf-8"),
-    ],
-)
-logger = logging.getLogger(__name__)
-
-
-class SkuLocation(NamedTuple):
-    item_id: str
-    location_id: str
-
-
-class Value(NamedTuple):
-    qty: Decimal = Decimal(0)
-    cost_amount: Decimal = Decimal(0)
-
-    def __add__(self, other: tuple) -> Value:
-        if not isinstance(other, Value):
-            return NotImplemented
-
-        return Value(self.qty + other.qty, self.cost_amount + other.cost_amount)
-
-
-class Row(NamedTuple):
-    item_id: str
-    location_id: str
-    trans_date: str
-    qty: str
-    cost_amount: str
+from logger import logger
+from models import SkuLocation, Value
+from settings import DELIMITER, ENCODING, PATH_STOCK, PATH_TRANS, QUOTING
+from utils import load_stock, rows
 
 
 @dataclass(slots=True)
@@ -103,30 +59,6 @@ def get_last_day_of_month(some_date: date) -> date:
     return next_month - timedelta(days=1)
 
 
-def _rows(
-    filename: Path,
-    filtered_date: Optional[str] = None,
-    has_header: bool = True,
-) -> Generator[Row, None, None]:
-    if not filename.is_file():
-        logger.error("Файл %s не найден", filename)
-
-    with open(filename, encoding=ENCODING) as fr:
-        reader = csv.reader(fr, delimiter=DELIMITER)
-
-        if has_header:
-            header = tuple(next(reader))
-            if Row._fields != tuple(header):
-                raise ValueError(
-                    f"Проблема с файлом `{filename}`: не совпадают заголовки.",
-                )
-
-        for line in reader:
-            row = Row(*line)
-            if filtered_date is None or row.trans_date == filtered_date:
-                yield row
-
-
 def _day_process(
     trans_date: date,
     stock: dict[SkuLocation, Value],
@@ -152,7 +84,7 @@ def _invent(
         logger.debug("Читаем %s", invent_trans_file)
         count = 0
         skipped = 0
-        for i, row in enumerate(_rows(invent_trans_file), 1):
+        for i, row in enumerate(rows(invent_trans_file), 1):
             try:
                 td = datetime.strptime(row.trans_date, "%Y-%m-%d").date()
                 sl = SkuLocation(row.item_id, row.location_id)
@@ -190,50 +122,11 @@ def _save_stock(trans_date: date, stock: dict[SkuLocation, Value]) -> None:
             writer.writerow(item)
 
 
-def _load_stock(stock_date: date) -> dict[SkuLocation, Value]:
-    stock: dict[SkuLocation, Value] = {}
-    trans_date_set = set()
-
-    s_date = stock_date.strftime("%Y_%m_%d")
-    stock_file = PATH_STOCK / f"stock_{s_date}.csv"
-
-    logger.debug("Читаем %s", stock_file)
-    count = 0
-    for stock_item in _rows(stock_file):
-        # считаем, что повторов в остатках быть не должно
-        stock[
-            SkuLocation(
-                stock_item.item_id,
-                stock_item.location_id,
-            )
-        ] = Value(
-            Decimal(stock_item.qty),
-            Decimal(stock_item.cost_amount),
-        )
-        trans_date_set.add(stock_item.trans_date)
-        count += 1
-
-    logger.debug(
-        "Прочитаны остатки за %s, количество дней: %d, строк: %d, позиций: %d",
-        ", ".join(sorted(trans_date_set)),
-        len(trans_date_set),
-        count,
-        len(stock),
-    )
-
-    if len(trans_date_set) > 1:
-        raise ValueError(
-            "Ерунда в начальных остатках с датами > 1",
-        )
-
-    return stock
-
-
 def main() -> None:
     start_date = datetime(2025, 4, 30).date()
     fin_date = datetime(2025, 7, 31).date()
 
-    stock = _load_stock(start_date)
+    stock = load_stock(start_date)
     trans_date = start_date
     while trans_date < fin_date:
         trans_date = trans_date + timedelta(days=1)
