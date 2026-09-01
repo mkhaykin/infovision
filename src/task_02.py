@@ -1,14 +1,73 @@
+"""
+Общее описание решения.
+Формируем специальную структуру:
+ - считаем сколько дней товар в указанном размещении был в течении анализируемого периоды.
+ Это в общем не обязательно, но в тестах удобнее проверять;
+ - ведем две даты: дата появления и дата окончания. Тут даты переписываем, т.е. если
+ позиция появилась повторно, то дату появления обновляем. Дата окончания может быть и
+ пустой, если не позиция заканчивалась и _до_ даты появления. Это валидная история.
+
+На основании этой структуры мы можем поймать что позиция была все время в наличии.
+Так же можем отобрать позиции, которые последний раз появились в указанном окне.
+"""
+
 import csv
 import heapq
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Generator, Optional
+from typing import Callable, Final, Generator, NamedTuple, Optional
 
-from logger import logger
-from models import SkuLocation, Value
-from settings import DELIMITER, ENCODING, PATH_STOCK, QUOTING
-from utils import load_stock
+PATH_SOURCE = Path(__file__).parent.parent
+PATH_TRANS = PATH_SOURCE / "invent_trans"
+PATH_STOCK = PATH_SOURCE / "stock"
+
+DELIMITER: Final = ";"
+ENCODING: Final = "utf-8"
+QUOTING: Final = csv.QUOTE_NONNUMERIC
+
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s.%(msecs)03d "
+    "| %(levelname)-8s "
+    "| [%(process)d:%(threadName)s] "
+    "| %(name)s "
+    "| %(filename)s:%(lineno)d -> %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("../app.log", encoding="utf-8"),
+    ],
+)
+
+logger = logging.getLogger(__name__)
+
+
+class Row(NamedTuple):
+    item_id: str
+    location_id: str
+    trans_date: str
+    qty: str
+    cost_amount: str
+
+
+class SkuLocation(NamedTuple):
+    item_id: str
+    location_id: str
+
+
+class Value(NamedTuple):
+    qty: Decimal = Decimal(0)
+    cost_amount: Decimal = Decimal(0)
+
+    def __add__(self, other: tuple) -> Value:
+        if not isinstance(other, Value):
+            return NotImplemented
+
+        return Value(self.qty + other.qty, self.cost_amount + other.cost_amount)
 
 
 @dataclass(slots=True)
@@ -23,6 +82,72 @@ class TrackValue:
 
     def inc(self) -> None:
         self.days_in = self.days_in + 1
+
+
+def rows(
+    filename: Path,
+    filtered_date: Optional[str] = None,
+    has_header: bool = True,
+) -> Generator[Row, None, None]:
+    if not filename.is_file():
+        logger.error("Файл %s не найден", filename)
+
+    with open(filename, encoding=ENCODING) as fr:
+        reader = csv.reader(fr, delimiter=DELIMITER)
+
+        if has_header:
+            header = tuple(next(reader))
+            if Row._fields != tuple(header):
+                raise ValueError(
+                    f"Проблема с файлом `{filename}`: не совпадают заголовки.",
+                )
+
+        for line in reader:
+            row = Row(*line)
+            if filtered_date is None or row.trans_date == filtered_date:
+                yield row
+
+
+def load_stock(stock_date: date, *, skip_zero: bool = False) -> dict[SkuLocation, Value]:
+    stock: dict[SkuLocation, Value] = {}
+    trans_date_set = set()
+
+    s_date = stock_date.strftime("%Y_%m_%d")
+    stock_file = PATH_STOCK / f"stock_{s_date}.csv"
+
+    logger.debug("Читаем %s", stock_file)
+    count = 0
+    for stock_item in rows(stock_file):
+        # считаем, что повторов в остатках быть не должно
+        if skip_zero and stock_item.qty == 0 or stock_item.cost_amount == 0:
+            continue
+
+        stock[
+            SkuLocation(
+                stock_item.item_id,
+                stock_item.location_id,
+            )
+        ] = Value(
+            Decimal(stock_item.qty),
+            Decimal(stock_item.cost_amount),
+        )
+        trans_date_set.add(stock_item.trans_date)
+        count += 1
+
+    logger.debug(
+        "Прочитаны остатки за %s, количество дней: %d, строк: %d, позиций: %d",
+        ", ".join(sorted(trans_date_set)),
+        len(trans_date_set),
+        count,
+        len(stock),
+    )
+
+    if len(trans_date_set) > 1:
+        raise ValueError(
+            "Ерунда в начальных остатках с датами > 1",
+        )
+
+    return stock
 
 
 def _stock_loader_wrapper(
