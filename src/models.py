@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 
 class SkuLocation(NamedTuple):
@@ -11,7 +11,7 @@ class Value(NamedTuple):
     qty: Decimal = Decimal(0)
     cost_amount: Decimal = Decimal(0)
 
-    def __add__(self, other: tuple) -> Value:
+    def __add__(self, other: tuple[Any, ...]) -> Value:
         if not isinstance(other, Value):
             return NotImplemented
 

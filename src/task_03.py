@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Final, Generator, NamedTuple
+from typing import Any, Callable, Final, Generator, NamedTuple
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -52,7 +52,7 @@ class Value(NamedTuple):
     qty: Decimal = Decimal(0)
     cost_amount: Decimal = Decimal(0)
 
-    def __add__(self, other: tuple) -> Value:
+    def __add__(self, other: tuple[Any, ...]) -> Value:
         if not isinstance(other, Value):
             return NotImplemented
 

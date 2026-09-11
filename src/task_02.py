@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Final, Generator, NamedTuple, Optional
+from typing import Any, Callable, Final, Generator, NamedTuple, Optional
 
 PATH_SOURCE = Path(__file__).parent.parent
 PATH_TRANS = PATH_SOURCE / "invent_trans"
@@ -62,7 +62,7 @@ class Value(NamedTuple):
     qty: Decimal = Decimal(0)
     cost_amount: Decimal = Decimal(0)
 
-    def __add__(self, other: tuple) -> Value:  # type: ignore
+    def __add__(self, other: tuple[Any, ...]) -> Value:
         if not isinstance(other, Value):
             return NotImplemented
 
