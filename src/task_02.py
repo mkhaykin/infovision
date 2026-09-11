@@ -117,6 +117,8 @@ def load_stock(stock_date: date, *, skip_zero: bool = False) -> dict[SkuLocation
     logger.debug("Читаем %s", stock_file)
     count = 0
     for stock_item in rows(stock_file):
+        count += 1
+
         sku_loc = SkuLocation(
             stock_item.item_id,
             stock_item.location_id,
@@ -133,7 +135,6 @@ def load_stock(stock_date: date, *, skip_zero: bool = False) -> dict[SkuLocation
         stock[sku_loc] = sku_value
 
         trans_date_set.add(stock_item.trans_date)
-        count += 1
 
     logger.debug(
         "Прочитаны остатки за %s, количество дней: %d, строк: %d, позиций: %d",
