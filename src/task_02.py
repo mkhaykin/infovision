@@ -28,7 +28,6 @@ DELIMITER: Final = ";"
 ENCODING: Final = "utf-8"
 QUOTING: Final = csv.QUOTE_NONNUMERIC
 
-
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s.%(msecs)03d "
@@ -63,7 +62,7 @@ class Value(NamedTuple):
     qty: Decimal = Decimal(0)
     cost_amount: Decimal = Decimal(0)
 
-    def __add__(self, other: tuple) -> Value:
+    def __add__(self, other: tuple) -> Value:  # type: ignore
         if not isinstance(other, Value):
             return NotImplemented
 
@@ -118,19 +117,21 @@ def load_stock(stock_date: date, *, skip_zero: bool = False) -> dict[SkuLocation
     logger.debug("Читаем %s", stock_file)
     count = 0
     for stock_item in rows(stock_file):
-        # считаем, что повторов в остатках быть не должно
-        if skip_zero and stock_item.qty == 0 or stock_item.cost_amount == 0:
-            continue
-
-        stock[
-            SkuLocation(
-                stock_item.item_id,
-                stock_item.location_id,
-            )
-        ] = Value(
+        sku_loc = SkuLocation(
+            stock_item.item_id,
+            stock_item.location_id,
+        )
+        sku_value = Value(
             Decimal(stock_item.qty),
             Decimal(stock_item.cost_amount),
         )
+
+        # считаем, что повторов в остатках быть не должно
+        if skip_zero and (sku_value.qty == 0 or sku_value.cost_amount == 0):
+            continue
+
+        stock[sku_loc] = sku_value
+
         trans_date_set.add(stock_item.trans_date)
         count += 1
 

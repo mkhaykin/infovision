@@ -44,14 +44,6 @@ repos:
         language_version: python3.14
         types: [python]
         exclude: ^(migrations|alembic|tests|app)/
-        # убрать при случае app, но сейчас там хлам ...
-        args: [
-          --show-error-codes,
-          --python-version=3.14,
-          "--exclude", "^(migrations|alembic|tests|app)/",
-          "--ignore-missing-imports",
-          "--explicit-package-bases"
-        ]
 
 #  - repo: local
 #    hooks:
